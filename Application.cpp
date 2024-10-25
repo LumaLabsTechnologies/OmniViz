@@ -111,6 +111,7 @@ void Application::onFrame() {
 	viewDesc.mipLevelCount = 1;
 	viewDesc.label = WGPU_STR("Surface Texture View");
 	auto nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
+	Texture(surfaceTexture.texture).release();
 	
 	CommandEncoderDescriptor commandEncoderDesc;
 	commandEncoderDesc.label = WGPU_STR("Command Encoder");
@@ -165,7 +166,6 @@ void Application::onFrame() {
 	renderPass.release();
 	
 	nextTexture.release();
-	Texture(surfaceTexture.texture).release();
 
 	CommandBufferDescriptor cmdBufferDescriptor{};
 	cmdBufferDescriptor.label = WGPU_STR("Command buffer");
