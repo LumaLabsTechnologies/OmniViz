@@ -229,5 +229,11 @@ TextureView Application::GetNextSurfaceTextureView() {
 	viewDescriptor.aspect = TextureAspect::All;
 	TextureView targetView = texture.createView(viewDescriptor);
 
+#ifndef WEBGPU_BACKEND_WGPU
+	// We no longer need the texture, only its view
+	// (NB: with wgpu-native, surface textures must not be manually released)
+	wgpuTextureRelease(surfaceTexture.texture);
+#endif // WEBGPU_BACKEND_WGPU
+
 	return targetView;
 }
