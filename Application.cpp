@@ -3,7 +3,7 @@
  *   https://github.com/eliemichel/LearnWebGPU
  * 
  * MIT License
- * Copyright (c) 2022-2023 Elie Michel
+ * Copyright (c) 2022-2024 Elie Michel
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -47,6 +47,9 @@
 #include <string>
 #include <array>
 
+#define WGPU_STR(s) { s, WGPU_STRLEN }
+#define FROM_WGPU_STR(view) ( view.length == WGPU_STRLEN ? std::string(view.data) : std::string(view.data, view.length) )
+
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
 
@@ -67,7 +70,7 @@ bool DragDirection(const char* label, glm::vec4& direction) {
 
 bool Application::onInit() {
 	if (!initWindowAndDevice()) return false;
-	if (!initSwapChain()) return false;
+	if (!initSurface()) return false;
 	if (!initDepthBuffer()) return false;
 	if (!initBindGroupLayout()) return false;
 	if (!initRenderPipeline()) return false;
@@ -88,15 +91,29 @@ void Application::onFrame() {
 	// Update uniform buffer
 	m_uniforms.time = static_cast<float>(glfwGetTime());
 	m_queue.writeBuffer(m_uniformBuffer, offsetof(MyUniforms, time), &m_uniforms.time, sizeof(MyUniforms::time));
-	
-	TextureView nextTexture = m_swapChain.getCurrentTextureView();
-	if (!nextTexture) {
-		std::cerr << "Cannot acquire next swap chain texture" << std::endl;
+
+	SurfaceTexture surfaceTexture;
+	m_surface.getCurrentTexture(&surfaceTexture);
+	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::Success) {
+		std::cerr << "Warning: Could not acquire surface texture, status: " << surfaceTexture.status << std::endl;
+	}
+	if (!surfaceTexture.texture) {
 		return;
 	}
-
+	TextureViewDescriptor viewDesc = Default;
+	viewDesc.dimension = TextureViewDimension::_2D;
+	viewDesc.format = m_surfaceFormat;
+	viewDesc.usage = TextureUsage::RenderAttachment;
+	viewDesc.aspect = TextureAspect::All;
+	viewDesc.baseArrayLayer = 0;
+	viewDesc.arrayLayerCount = 1;
+	viewDesc.baseMipLevel = 0;
+	viewDesc.mipLevelCount = 1;
+	viewDesc.label = WGPU_STR("Surface Texture View");
+	auto nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
+	
 	CommandEncoderDescriptor commandEncoderDesc;
-	commandEncoderDesc.label = "Command Encoder";
+	commandEncoderDesc.label = WGPU_STR("Command Encoder");
 	CommandEncoder encoder = m_device.createCommandEncoder(commandEncoderDesc);
 	
 	RenderPassDescriptor renderPassDesc{};
@@ -107,6 +124,7 @@ void Application::onFrame() {
 	renderPassColorAttachment.loadOp = LoadOp::Clear;
 	renderPassColorAttachment.storeOp = StoreOp::Store;
 	renderPassColorAttachment.clearValue = Color{ 0.05, 0.05, 0.05, 1.0 };
+	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 	renderPassDesc.colorAttachmentCount = 1;
 	renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
@@ -128,7 +146,6 @@ void Application::onFrame() {
 
 	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
 
-	renderPassDesc.timestampWriteCount = 0;
 	renderPassDesc.timestampWrites = nullptr;
 	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
 
@@ -150,13 +167,13 @@ void Application::onFrame() {
 	nextTexture.release();
 
 	CommandBufferDescriptor cmdBufferDescriptor{};
-	cmdBufferDescriptor.label = "Command buffer";
+	cmdBufferDescriptor.label = WGPU_STR("Command buffer");
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
 	m_queue.submit(command);
 	command.release();
 
-	m_swapChain.present();
+	m_surface.present();
 
 #ifdef WEBGPU_BACKEND_DAWN
 	// Check for pending error callbacks
@@ -174,7 +191,7 @@ void Application::onFinish() {
 	terminateRenderPipeline();
 	terminateBindGroupLayout();
 	terminateDepthBuffer();
-	terminateSwapChain();
+	terminateSurface();
 	terminateWindowAndDevice();
 }
 
@@ -185,10 +202,10 @@ bool Application::isRunning() {
 void Application::onResize() {
 	// Terminate in reverse order
 	terminateDepthBuffer();
-	terminateSwapChain();
+	terminateSurface();
 
 	// Re-init
-	initSwapChain();
+	initSurface();
 	initDepthBuffer();
 
 	updateProjectionMatrix();
@@ -262,8 +279,15 @@ bool Application::initWindowAndDevice() {
 		return false;
 	}
 
+	std::cout << "Getting surface..." << std::endl;
+	m_surface = glfwCreateWindowWGPUSurface(m_instance, m_window);
+	std::cout << "Got surface: " << m_surface << std::endl;
+	if (!m_surface) {
+		std::cerr << "Could not get surface!" << std::endl;
+		return false;
+	}
+
 	std::cout << "Requesting adapter..." << std::endl;
-	m_surface = glfwGetWGPUSurface(m_instance, m_window);
 	RequestAdapterOptions adapterOpts{};
 	adapterOpts.compatibleSurface = m_surface;
 	Adapter adapter = m_instance.requestAdapter(adapterOpts);
@@ -294,27 +318,45 @@ bool Application::initWindowAndDevice() {
 	requiredLimits.limits.maxSamplersPerShaderStage = 1;
 
 	DeviceDescriptor deviceDesc;
-	deviceDesc.label = "My Device";
-	deviceDesc.requiredFeaturesCount = 0;
+	deviceDesc.label = WGPU_STR("My Device");
+	deviceDesc.requiredFeatureCount = 0;
 	deviceDesc.requiredLimits = &requiredLimits;
-	deviceDesc.defaultQueue.label = "The default queue";
+	deviceDesc.defaultQueue.label = WGPU_STR("The default queue");
+
+	deviceDesc.deviceLostCallbackInfo2.mode = CallbackMode::AllowSpontaneous;
+	deviceDesc.deviceLostCallbackInfo2.callback = [](
+		[[maybe_unused]] WGPUDevice const* device,
+		WGPUDeviceLostReason reason,
+		struct WGPUStringView message,
+		[[maybe_unused]] void* userdata1,
+		[[maybe_unused]] void* userdata2
+	) {
+		std::cout << "Device lost: reason " << reason;
+		if (message.data) std::cout << " (message: " << FROM_WGPU_STR(message) << ")";
+		std::cout << std::endl;
+	};
+
+	// Add an error callback for more debug info
+	deviceDesc.uncapturedErrorCallbackInfo2.callback = [](
+		[[maybe_unused]] WGPUDevice const* device,
+		WGPUErrorType type,
+		struct WGPUStringView message,
+		[[maybe_unused]] void* userdata1,
+		[[maybe_unused]] void* userdata2
+	) {
+		std::cout << "Device error: type " << type;
+		if (message.data) std::cout << " (message: " << FROM_WGPU_STR(message) << ")";
+		std::cout << std::endl;
+	};
+
 	m_device = adapter.requestDevice(deviceDesc);
 	std::cout << "Got device: " << m_device << std::endl;
 
-	// Add an error callback for more debug info
-	m_errorCallbackHandle = m_device.setUncapturedErrorCallback([](ErrorType type, char const* message) {
-		std::cout << "Device error: type " << type;
-		if (message) std::cout << " (message: " << message << ")";
-		std::cout << std::endl;
-	});
-
 	m_queue = m_device.getQueue();
 
-#ifdef WEBGPU_BACKEND_WGPU
-	m_swapChainFormat = m_surface.getPreferredFormat(adapter);
-#else
-	m_swapChainFormat = TextureFormat::BGRA8Unorm;
-#endif
+	SurfaceCapabilities capabilities;
+	m_surface.getCapabilities(adapter, &capabilities);
+	m_surfaceFormat = capabilities.formats[0];
 
 	// Add window callbacks
 	// Set the user pointer to be "this"
@@ -351,25 +393,28 @@ void Application::terminateWindowAndDevice() {
 }
 
 
-bool Application::initSwapChain() {
+bool Application::initSurface() {
 	// Get the current size of the window's framebuffer:
 	int width, height;
 	glfwGetFramebufferSize(m_window, &width, &height);
 
-	std::cout << "Creating swapchain..." << std::endl;
-	SwapChainDescriptor swapChainDesc;
-	swapChainDesc.width = static_cast<uint32_t>(width);
-	swapChainDesc.height = static_cast<uint32_t>(height);
-	swapChainDesc.usage = TextureUsage::RenderAttachment;
-	swapChainDesc.format = m_swapChainFormat;
-	swapChainDesc.presentMode = PresentMode::Fifo;
-	m_swapChain = m_device.createSwapChain(m_surface, swapChainDesc);
-	std::cout << "Swapchain: " << m_swapChain << std::endl;
-	return m_swapChain != nullptr;
+	std::cout << "Configuring surface..." << std::endl;
+	SurfaceConfiguration config;
+	config.width = static_cast<uint32_t>(width);
+	config.height = static_cast<uint32_t>(height);
+	config.usage = TextureUsage::RenderAttachment;
+	config.format = m_surfaceFormat;
+	config.presentMode = PresentMode::Fifo;
+	config.alphaMode = CompositeAlphaMode::Auto;
+	config.device = m_device;
+	config.viewFormatCount = 0;
+	config.viewFormats = nullptr;
+	m_surface.configure(config);
+	return true;
 }
 
-void Application::terminateSwapChain() {
-	m_swapChain.release();
+void Application::terminateSurface() {
+	m_surface.unconfigure();
 }
 
 
@@ -454,7 +499,7 @@ bool Application::initRenderPipeline() {
 	pipelineDesc.vertex.buffers = &vertexBufferLayout;
 
 	pipelineDesc.vertex.module = m_shaderModule;
-	pipelineDesc.vertex.entryPoint = "vs_main";
+	pipelineDesc.vertex.entryPoint = WGPU_STR("vs_main");
 	pipelineDesc.vertex.constantCount = 0;
 	pipelineDesc.vertex.constants = nullptr;
 
@@ -466,7 +511,7 @@ bool Application::initRenderPipeline() {
 	FragmentState fragmentState;
 	pipelineDesc.fragment = &fragmentState;
 	fragmentState.module = m_shaderModule;
-	fragmentState.entryPoint = "fs_main";
+	fragmentState.entryPoint = WGPU_STR("fs_main");
 	fragmentState.constantCount = 0;
 	fragmentState.constants = nullptr;
 
@@ -479,7 +524,7 @@ bool Application::initRenderPipeline() {
 	blendState.alpha.operation = BlendOperation::Add;
 
 	ColorTargetState colorTarget;
-	colorTarget.format = m_swapChainFormat;
+	colorTarget.format = m_surfaceFormat;
 	colorTarget.blend = &blendState;
 	colorTarget.writeMask = ColorWriteMask::All;
 
@@ -488,7 +533,7 @@ bool Application::initRenderPipeline() {
 
 	DepthStencilState depthStencilState = Default;
 	depthStencilState.depthCompare = CompareFunction::Less;
-	depthStencilState.depthWriteEnabled = true;
+	depthStencilState.depthWriteEnabled = OptionalBool::True;
 	depthStencilState.format = m_depthTextureFormat;
 	depthStencilState.stencilReadMask = 0;
 	depthStencilState.stencilWriteMask = 0;
@@ -775,7 +820,12 @@ bool Application::initGui() {
 
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForOther(m_window, true);
-	ImGui_ImplWGPU_Init(m_device, 3, m_swapChainFormat, m_depthTextureFormat);
+	ImGui_ImplWGPU_InitInfo init_info;
+	init_info.Device = m_device;
+	init_info.RenderTargetFormat = m_surfaceFormat;
+	init_info.DepthStencilFormat = m_depthTextureFormat;
+	init_info.NumFramesInFlight = 3;
+	ImGui_ImplWGPU_Init(&init_info);
 	return true;
 }
 

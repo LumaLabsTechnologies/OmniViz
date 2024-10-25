@@ -64,6 +64,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 	let color = baseColor * shading;
 
 	// Gamma-correction
-	let corrected_color = pow(color, vec3f(2.2));
+	//let corrected_color = pow(color, vec3f(2.2));
+	let corrected_color = color;
 	return vec4f(corrected_color, uMyUniforms.color.a);
 }

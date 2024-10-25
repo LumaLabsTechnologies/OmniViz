@@ -3,7 +3,7 @@
  *   https://github.com/eliemichel/LearnWebGPU
  * 
  * MIT License
- * Copyright (c) 2022-2023 Elie Michel
+ * Copyright (c) 2022-2024 Elie Michel
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -45,10 +45,10 @@ ShaderModule ResourceManager::loadShaderModule(const path& path, Device device) 
 	file.seekg(0);
 	file.read(shaderSource.data(), size);
 
-	ShaderModuleWGSLDescriptor shaderCodeDesc;
+	WGPUShaderSourceWGSL shaderCodeDesc;
 	shaderCodeDesc.chain.next = nullptr;
-	shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
-	shaderCodeDesc.code = shaderSource.c_str();
+	shaderCodeDesc.chain.sType = SType::ShaderSourceWGSL;
+	shaderCodeDesc.code = { shaderSource.data(), shaderSource.size() };
 	ShaderModuleDescriptor shaderDesc;
 	shaderDesc.nextInChain = &shaderCodeDesc.chain;
 #ifdef WEBGPU_BACKEND_WGPU
