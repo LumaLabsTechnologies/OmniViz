@@ -165,6 +165,7 @@ void Application::onFrame() {
 	renderPass.release();
 	
 	nextTexture.release();
+	Texture(surfaceTexture.texture).release();
 
 	CommandBufferDescriptor cmdBufferDescriptor{};
 	cmdBufferDescriptor.label = WGPU_STR("Command buffer");
