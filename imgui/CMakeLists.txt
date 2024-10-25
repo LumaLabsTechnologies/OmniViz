@@ -27,6 +27,12 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC .)
 target_link_libraries(imgui PUBLIC webgpu glfw)
 
+set_target_properties(imgui PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
 if (NOT EMSCRIPTEN)
     if (WEBGPU_BACKEND STREQUAL "WGPU")
         target_compile_definitions(imgui PUBLIC IMGUI_IMPL_WEBGPU_BACKEND_WGPU)
