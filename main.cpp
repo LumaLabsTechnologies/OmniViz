@@ -12,6 +12,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <array>
 
 #include "ResourceManager.h"
 
@@ -30,6 +31,19 @@ public:
 
 	// Return true as long as the main loop should keep on running
 	bool IsRunning();
+
+private:
+	// Internal structures
+	/**
+	 * The same structure as in the shader, replicated in C++
+	 */
+	struct MyUniforms {
+		std::array<float, 4> color;  // or float color[4]
+		float time;
+		float _pad[3];
+	};
+	// Have the compiler check byte alignment
+	static_assert(sizeof(MyUniforms) % 16 == 0);
 
 private:
 	TextureView GetNextSurfaceTextureView();
@@ -177,8 +191,9 @@ void Application::MainLoop() {
 	glfwPollEvents();
 
 	// Update uniform buffer
-	float t = static_cast<float>(glfwGetTime()); // glfwGetTime returns a double
-	queue.writeBuffer(uniformBuffer, 0, &t, sizeof(float));
+	float time = static_cast<float>(glfwGetTime());
+	// Only update the 1-st float of the buffer
+	queue.writeBuffer(uniformBuffer, offsetof(MyUniforms, time), &time, sizeof(float));
 
 	// Get the next target texture view
 	TextureView targetView = GetNextSurfaceTextureView();
@@ -322,7 +337,6 @@ void Application::InitializePipeline() {
 	vertexBufferLayout.attributes = vertexAttribs.data();
 	
 	vertexBufferLayout.arrayStride = 5 * sizeof(float);
-	//                               ^^^^^^^^^^^^^^^^^ The new stride
 	vertexBufferLayout.stepMode = VertexStepMode::Vertex;
 	
 	pipelineDesc.vertex.bufferCount = 1;
@@ -397,9 +411,11 @@ void Application::InitializePipeline() {
 	// The binding index as used in the @binding attribute in the shader
 	bindingLayout.binding = 0;
 	// The stage that needs to access this resource
-	bindingLayout.visibility = ShaderStage::Vertex;
+	bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
+	//                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ This changed
 	bindingLayout.buffer.type = BufferBindingType::Uniform;
-	bindingLayout.buffer.minBindingSize = 4 * sizeof(float);
+	bindingLayout.buffer.minBindingSize = sizeof(MyUniforms);
+	//                                    ^^^^^^^^^^^^^^^^^^ This was 4 * sizeof(float)
 
 	// Create a bind group layout
 	BindGroupLayoutDescriptor bindGroupLayoutDesc{};
@@ -495,7 +511,8 @@ void Application::InitializeBuffers() {
 	// Create uniform buffer (reusing bufferDesc from other buffer creations)
 	// The buffer will only contain 1 float with the value of uTime
 	// then 3 floats left empty but needed by alignment constraints
-	bufferDesc.size = 4 * sizeof(float);
+	bufferDesc.size = sizeof(MyUniforms);
+	//                ^^^^^^^^^^^^^^^^^^ This was 4 * sizeof(float)
 
 	// Make sure to flag the buffer as BufferUsage::Uniform
 	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
@@ -503,9 +520,11 @@ void Application::InitializeBuffers() {
 	bufferDesc.mappedAtCreation = false;
 	uniformBuffer = device.createBuffer(bufferDesc);
 
-	// Upload uniform data
-	float currentTime = 1.0f;
-	queue.writeBuffer(uniformBuffer, 0, &currentTime, sizeof(float));
+	// Upload the initial value of the uniforms
+	MyUniforms uniforms;
+	uniforms.time = 1.0f;
+	uniforms.color = { 0.0f, 1.0f, 0.4f, 1.0f };
+	queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(MyUniforms));
 }
 
 void Application::InitializeBindGroups() {
@@ -519,7 +538,8 @@ void Application::InitializeBindGroups() {
 	// multiple uniform blocks.
 	binding.offset = 0;
 	// And we specify again the size of the buffer.
-	binding.size = 4 * sizeof(float);
+	binding.size = sizeof(MyUniforms);
+	//             ^^^^^^^^^^^^^^^^^^ This was 4 * sizeof(float)
 
 	// A bind group contains one or multiple bindings
 	BindGroupDescriptor bindGroupDesc{};
