@@ -26,19 +26,21 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    var out: VertexOutput;
-    let ratio = 640.0 / 480.0;
+	var out: VertexOutput;
+	let ratio = 640.0 / 480.0;
 
-    // We now move the scene depending on the time!
-    var offset = vec2f(-0.6875, -0.463);
-    offset += 0.3 * vec2f(cos(uTime), sin(uTime));
+	// We now move the scene depending on the time!
+	var offset = vec2f(-0.6875, -0.463);
+	offset += 0.3 * vec2f(cos(uTime), sin(uTime));
 
-    out.position = vec4f(in.position.x + offset.x, (in.position.y + offset.y) * ratio, 0.0, 1.0);
-    out.color = in.color;
-    return out;
+	out.position = vec4f(in.position.x + offset.x, (in.position.y + offset.y) * ratio, 0.0, 1.0);
+	out.color = in.color;
+	return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-	return vec4f(in.color, 1.0); // use the interpolated color coming from the vertex shader
+	// Gamma-correction
+	let linear_color = pow(in.color, vec3f(2.2));
+	return vec4f(linear_color, 1.0);
 }
