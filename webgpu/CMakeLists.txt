@@ -47,7 +47,6 @@ if (EMSCRIPTEN OR WEBGPU_BACKEND_U STREQUAL "EMSCRIPTEN")
 
 elseif (WEBGPU_BACKEND_U STREQUAL "WGPU")
 
-	message(FATAL_ERROR "This branch is an implementation-specific preview that does not support wgpu-native!")
 	add_subdirectory(wgpu-native)
 
 elseif (WEBGPU_BACKEND_U STREQUAL "DAWN")

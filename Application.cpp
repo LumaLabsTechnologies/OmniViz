@@ -47,8 +47,13 @@
 #include <string>
 #include <array>
 
-#define WGPU_STR(s) { s, WGPU_STRLEN }
-#define FROM_WGPU_STR(view) ( view.length == WGPU_STRLEN ? std::string(view.data) : std::string(view.data, view.length) )
+#ifdef WEBGPU_BACKEND_DAWN
+#  define WGPU_STR(s) { s, WGPU_STRLEN }
+#  define FROM_WGPU_STR(view) ( view.length == WGPU_STRLEN ? std::string(view.data) : std::string(view.data, view.length) )
+#else // WEBGPU_BACKEND_DAWN
+#  define WGPU_STR(s) s
+#  define FROM_WGPU_STR(view) view
+#endif // WEBGPU_BACKEND_DAWN
 
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
@@ -100,10 +105,13 @@ void Application::onFrame() {
 	if (!surfaceTexture.texture) {
 		return;
 	}
+	WGPUTextureViewDescriptor;
 	TextureViewDescriptor viewDesc = Default;
 	viewDesc.dimension = TextureViewDimension::_2D;
 	viewDesc.format = m_surfaceFormat;
+#ifndef WEBGPU_BACKEND_WGPU
 	viewDesc.usage = TextureUsage::RenderAttachment;
+#endif // WEBGPU_BACKEND_WGPU
 	viewDesc.aspect = TextureAspect::All;
 	viewDesc.baseArrayLayer = 0;
 	viewDesc.arrayLayerCount = 1;
@@ -324,8 +332,13 @@ bool Application::initWindowAndDevice() {
 	deviceDesc.requiredLimits = &requiredLimits;
 	deviceDesc.defaultQueue.label = WGPU_STR("The default queue");
 
+#ifdef WEBGPU_BACKEND_DAWN
 	deviceDesc.deviceLostCallbackInfo2.mode = CallbackMode::AllowSpontaneous;
-	deviceDesc.deviceLostCallbackInfo2.callback = [](
+	deviceDesc.deviceLostCallbackInfo2.callback =
+#else // WEBGPU_BACKEND_DAWN
+	deviceDesc.deviceLostCallback =
+#endif // WEBGPU_BACKEND_DAWN
+	[](
 		[[maybe_unused]] WGPUDevice const* device,
 		WGPUDeviceLostReason reason,
 		struct WGPUStringView message,

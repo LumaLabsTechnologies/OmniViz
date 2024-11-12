@@ -127,11 +127,10 @@ class Type { \
 public: \
 	typedef Type S; /* S == Self */ \
 	typedef WGPU ## Type W; /* W == WGPU Type */ \
-	Type(const W& w) : m_raw(w) {} \
-	operator W() const { return m_raw; } \
-private: \
-	W m_raw; \
-public:
+	constexpr Type() : m_raw(W{}) {} /* Using default value-initialization */ \
+	constexpr Type(const W& w) : m_raw(w) {} \
+	constexpr operator W() const { return m_raw; } \
+	W m_raw; /* Ideally, this would be private, but then types generated with this macro would not be structural. */
 
 #define ENUM_ENTRY(Name, Value) \
 	static constexpr W Name = (W)(Value);
@@ -690,6 +689,7 @@ ENUM(NativeFeature)
 	ENUM_ENTRY(MappablePrimaryBuffers, WGPUNativeFeature_MappablePrimaryBuffers)
 	ENUM_ENTRY(BufferBindingArray, WGPUNativeFeature_BufferBindingArray)
 	ENUM_ENTRY(UniformBufferAndStorageTextureArrayNonUniformIndexing, WGPUNativeFeature_UniformBufferAndStorageTextureArrayNonUniformIndexing)
+	ENUM_ENTRY(SpirvShaderPassthrough, WGPUNativeFeature_SpirvShaderPassthrough)
 	ENUM_ENTRY(VertexAttribute64bit, WGPUNativeFeature_VertexAttribute64bit)
 	ENUM_ENTRY(TextureFormatNv12, WGPUNativeFeature_TextureFormatNv12)
 	ENUM_ENTRY(RayTracingAccelerationStructure, WGPUNativeFeature_RayTracingAccelerationStructure)
@@ -698,6 +698,11 @@ ENUM(NativeFeature)
 	ENUM_ENTRY(ShaderI16, WGPUNativeFeature_ShaderI16)
 	ENUM_ENTRY(ShaderPrimitiveIndex, WGPUNativeFeature_ShaderPrimitiveIndex)
 	ENUM_ENTRY(ShaderEarlyDepthTest, WGPUNativeFeature_ShaderEarlyDepthTest)
+	ENUM_ENTRY(Subgroup, WGPUNativeFeature_Subgroup)
+	ENUM_ENTRY(SubgroupVertex, WGPUNativeFeature_SubgroupVertex)
+	ENUM_ENTRY(SubgroupBarrier, WGPUNativeFeature_SubgroupBarrier)
+	ENUM_ENTRY(TimestampQueryInsideEncoders, WGPUNativeFeature_TimestampQueryInsideEncoders)
+	ENUM_ENTRY(TimestampQueryInsidePasses, WGPUNativeFeature_TimestampQueryInsidePasses)
 	ENUM_ENTRY(Force32, WGPUNativeFeature_Force32)
 END
 ENUM(LogLevel)
@@ -899,15 +904,15 @@ STRUCT(PipelineLayoutExtras)
 	void setDefault();
 END
 
-STRUCT(WrappedSubmissionIndex)
-	void setDefault();
-END
-
 STRUCT(ShaderDefine)
 	void setDefault();
 END
 
 STRUCT(ShaderModuleGLSLDescriptor)
+	void setDefault();
+END
+
+STRUCT(ShaderModuleDescriptorSpirV)
 	void setDefault();
 END
 
@@ -1259,8 +1264,10 @@ HANDLE(ComputePassEncoder)
 	void setPipeline(ComputePipeline pipeline);
 	void reference();
 	void release();
+	void setPushConstants(uint32_t offset, uint32_t sizeBytes, void const * data);
 	void beginPipelineStatisticsQuery(QuerySet querySet, uint32_t queryIndex);
 	void endPipelineStatisticsQuery();
+	void writeTimestamp(QuerySet querySet, uint32_t queryIndex);
 END
 
 HANDLE(ComputePipeline)
@@ -1297,8 +1304,8 @@ HANDLE(Device)
 	void setLabel(char const * label);
 	void reference();
 	void release();
-	Bool poll(Bool wait, const WrappedSubmissionIndex& wrappedSubmissionIndex);
-	Bool poll(Bool wait);
+	Bool poll(Bool wait, SubmissionIndex const * wrappedSubmissionIndex);
+	ShaderModule createShaderModuleSpirV(const ShaderModuleDescriptorSpirV& descriptor);
 END
 
 HANDLE(Instance)
@@ -1403,6 +1410,7 @@ HANDLE(RenderPassEncoder)
 	void multiDrawIndexedIndirectCount(Buffer buffer, uint64_t offset, Buffer count_buffer, uint64_t count_buffer_offset, uint32_t max_count);
 	void beginPipelineStatisticsQuery(QuerySet querySet, uint32_t queryIndex);
 	void endPipelineStatisticsQuery();
+	void writeTimestamp(QuerySet querySet, uint32_t queryIndex);
 END
 
 HANDLE(RenderPipeline)
@@ -2059,11 +2067,6 @@ void PipelineLayoutExtras::setDefault() {
 }
 
 
-// Methods of WrappedSubmissionIndex
-void WrappedSubmissionIndex::setDefault() {
-}
-
-
 // Methods of ShaderDefine
 void ShaderDefine::setDefault() {
 }
@@ -2073,6 +2076,11 @@ void ShaderDefine::setDefault() {
 void ShaderModuleGLSLDescriptor::setDefault() {
 	((ChainedStruct*)&chain)->setDefault();
 	chain.sType = (WGPUSType)NativeSType::ShaderModuleGLSLDescriptor;
+}
+
+
+// Methods of ShaderModuleDescriptorSpirV
+void ShaderModuleDescriptorSpirV::setDefault() {
 }
 
 
@@ -2094,6 +2102,7 @@ void HubReport::setDefault() {
 	((RegistryReport*)&renderBundles)->setDefault();
 	((RegistryReport*)&renderPipelines)->setDefault();
 	((RegistryReport*)&computePipelines)->setDefault();
+	((RegistryReport*)&pipelineCaches)->setDefault();
 	((RegistryReport*)&querySets)->setDefault();
 	((RegistryReport*)&buffers)->setDefault();
 	((RegistryReport*)&textures)->setDefault();
@@ -2104,12 +2113,8 @@ void HubReport::setDefault() {
 
 // Methods of GlobalReport
 void GlobalReport::setDefault() {
-	backendType = BackendType::Undefined;
 	((RegistryReport*)&surfaces)->setDefault();
-	((HubReport*)&vulkan)->setDefault();
-	((HubReport*)&metal)->setDefault();
-	((HubReport*)&dx12)->setDefault();
-	((HubReport*)&gl)->setDefault();
+	((HubReport*)&hub)->setDefault();
 }
 
 
@@ -2351,11 +2356,17 @@ void ComputePassEncoder::reference() {
 void ComputePassEncoder::release() {
 	return wgpuComputePassEncoderRelease(m_raw);
 }
+void ComputePassEncoder::setPushConstants(uint32_t offset, uint32_t sizeBytes, void const * data) {
+	return wgpuComputePassEncoderSetPushConstants(m_raw, offset, sizeBytes, data);
+}
 void ComputePassEncoder::beginPipelineStatisticsQuery(QuerySet querySet, uint32_t queryIndex) {
 	return wgpuComputePassEncoderBeginPipelineStatisticsQuery(m_raw, querySet, queryIndex);
 }
 void ComputePassEncoder::endPipelineStatisticsQuery() {
 	return wgpuComputePassEncoderEndPipelineStatisticsQuery(m_raw);
+}
+void ComputePassEncoder::writeTimestamp(QuerySet querySet, uint32_t queryIndex) {
+	return wgpuComputePassEncoderWriteTimestamp(m_raw, querySet, queryIndex);
 }
 
 
@@ -2471,11 +2482,11 @@ void Device::reference() {
 void Device::release() {
 	return wgpuDeviceRelease(m_raw);
 }
-Bool Device::poll(Bool wait, const WrappedSubmissionIndex& wrappedSubmissionIndex) {
-	return wgpuDevicePoll(m_raw, wait, &wrappedSubmissionIndex);
+Bool Device::poll(Bool wait, SubmissionIndex const * wrappedSubmissionIndex) {
+	return wgpuDevicePoll(m_raw, wait, wrappedSubmissionIndex);
 }
-Bool Device::poll(Bool wait) {
-	return wgpuDevicePoll(m_raw, wait, nullptr);
+ShaderModule Device::createShaderModuleSpirV(const ShaderModuleDescriptorSpirV& descriptor) {
+	return wgpuDeviceCreateShaderModuleSpirV(m_raw, &descriptor);
 }
 
 
@@ -2755,6 +2766,9 @@ void RenderPassEncoder::beginPipelineStatisticsQuery(QuerySet querySet, uint32_t
 }
 void RenderPassEncoder::endPipelineStatisticsQuery() {
 	return wgpuRenderPassEncoderEndPipelineStatisticsQuery(m_raw);
+}
+void RenderPassEncoder::writeTimestamp(QuerySet querySet, uint32_t queryIndex) {
+	return wgpuRenderPassEncoderWriteTimestamp(m_raw, querySet, queryIndex);
 }
 
 
