@@ -157,8 +157,6 @@ private:
 	wgpu::Device m_device;
 	wgpu::Queue m_queue;
 	wgpu::TextureFormat m_surfaceFormat = wgpu::TextureFormat::Undefined;
-	// Keep the error callback alive
-	std::unique_ptr<wgpu::ErrorCallback> m_errorCallbackHandle;
 
 	// Depth Buffer
 	wgpu::TextureFormat m_depthTextureFormat = wgpu::TextureFormat::Depth24Plus;

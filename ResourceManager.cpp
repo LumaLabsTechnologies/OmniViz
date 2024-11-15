@@ -51,10 +51,6 @@ ShaderModule ResourceManager::loadShaderModule(const path& path, Device device) 
 	shaderCodeDesc.code = { shaderSource.data(), shaderSource.size() };
 	ShaderModuleDescriptor shaderDesc;
 	shaderDesc.nextInChain = &shaderCodeDesc.chain;
-#ifdef WEBGPU_BACKEND_WGPU
-	shaderDesc.hintCount = 0;
-	shaderDesc.hints = nullptr;
-#endif
 
 	return device.createShaderModule(shaderDesc);
 }
@@ -131,13 +127,13 @@ static void writeMipMaps(
 	Queue queue = device.getQueue();
 
 	// Arguments telling which part of the texture we upload to
-	ImageCopyTexture destination;
+	TexelCopyTextureInfo destination;
 	destination.texture = texture;
 	destination.origin = { 0, 0, 0 };
 	destination.aspect = TextureAspect::All;
 
 	// Arguments telling how the C++ side pixel memory is laid out
-	TextureDataLayout source;
+	TexelCopyBufferLayout source;
 	source.offset = 0;
 
 	// Create image data

@@ -46,14 +46,7 @@
 #include <sstream>
 #include <string>
 #include <array>
-
-#ifdef WEBGPU_BACKEND_DAWN
-#  define WGPU_STR(s) { s, WGPU_STRLEN }
-#  define FROM_WGPU_STR(view) ( view.length == WGPU_STRLEN ? std::string(view.data) : std::string(view.data, view.length) )
-#else // WEBGPU_BACKEND_DAWN
-#  define WGPU_STR(s) s
-#  define FROM_WGPU_STR(view) view
-#endif // WEBGPU_BACKEND_DAWN
+#include <string_view>
 
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
@@ -99,13 +92,13 @@ void Application::onFrame() {
 
 	SurfaceTexture surfaceTexture;
 	m_surface.getCurrentTexture(&surfaceTexture);
-	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::Success) {
+	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::SuccessOptimal) {
 		std::cerr << "Warning: Could not acquire surface texture, status: " << surfaceTexture.status << std::endl;
 	}
 	if (!surfaceTexture.texture) {
 		return;
 	}
-	WGPUTextureViewDescriptor;
+
 	TextureViewDescriptor viewDesc = Default;
 	viewDesc.dimension = TextureViewDimension::_2D;
 	viewDesc.format = m_surfaceFormat;
@@ -117,12 +110,12 @@ void Application::onFrame() {
 	viewDesc.arrayLayerCount = 1;
 	viewDesc.baseMipLevel = 0;
 	viewDesc.mipLevelCount = 1;
-	viewDesc.label = WGPU_STR("Surface Texture View");
+	viewDesc.label = StringView("Surface Texture View");
 	auto nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
 	Texture(surfaceTexture.texture).release();
 	
 	CommandEncoderDescriptor commandEncoderDesc;
-	commandEncoderDesc.label = WGPU_STR("Command Encoder");
+	commandEncoderDesc.label = StringView("Command Encoder");
 	CommandEncoder encoder = m_device.createCommandEncoder(commandEncoderDesc);
 	
 	RenderPassDescriptor renderPassDesc{};
@@ -176,7 +169,7 @@ void Application::onFrame() {
 	nextTexture.release();
 
 	CommandBufferDescriptor cmdBufferDescriptor{};
-	cmdBufferDescriptor.label = WGPU_STR("Command buffer");
+	cmdBufferDescriptor.label = StringView("Command buffer");
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
 	m_queue.submit(command);
@@ -302,41 +295,40 @@ bool Application::initWindowAndDevice() {
 	Adapter adapter = m_instance.requestAdapter(adapterOpts);
 	std::cout << "Got adapter: " << adapter << std::endl;
 
-	SupportedLimits supportedLimits;
+	Limits supportedLimits;
 	adapter.getLimits(&supportedLimits);
 
 	std::cout << "Requesting device..." << std::endl;
-	RequiredLimits requiredLimits = Default;
-	requiredLimits.limits.maxVertexAttributes = 4;
-	requiredLimits.limits.maxVertexBuffers = 1;
-	requiredLimits.limits.maxBufferSize = 150000 * sizeof(VertexAttributes);
-	requiredLimits.limits.maxVertexBufferArrayStride = sizeof(VertexAttributes);
-	requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
-	requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
-	requiredLimits.limits.maxInterStageShaderComponents = 8;
-	requiredLimits.limits.maxBindGroups = 2;
-	//                                    ^ This was a 1
-	requiredLimits.limits.maxUniformBuffersPerShaderStage = 2;
-	//                                                      ^ This was a 1
-	requiredLimits.limits.maxUniformBufferBindingSize = 16 * 4 * sizeof(float);
+	Limits requiredLimits = Default;
+	requiredLimits.maxVertexAttributes = 4;
+	requiredLimits.maxVertexBuffers = 1;
+	requiredLimits.maxBufferSize = 150000 * sizeof(VertexAttributes);
+	requiredLimits.maxVertexBufferArrayStride = sizeof(VertexAttributes);
+	requiredLimits.minStorageBufferOffsetAlignment = supportedLimits.minStorageBufferOffsetAlignment;
+	requiredLimits.minUniformBufferOffsetAlignment = supportedLimits.minUniformBufferOffsetAlignment;
+	requiredLimits.maxInterStageShaderVariables = 8;
+	requiredLimits.maxBindGroups = 2;
+	requiredLimits.maxUniformBuffersPerShaderStage = 2;
+	requiredLimits.maxUniformBufferBindingSize = 16 * 4 * sizeof(float);
 	// Allow textures up to 2K
-	requiredLimits.limits.maxTextureDimension1D = 2048;
-	requiredLimits.limits.maxTextureDimension2D = 2048;
-	requiredLimits.limits.maxTextureArrayLayers = 1;
-	requiredLimits.limits.maxSampledTexturesPerShaderStage = 1;
-	requiredLimits.limits.maxSamplersPerShaderStage = 1;
+	requiredLimits.maxTextureDimension1D = 2048;
+	requiredLimits.maxTextureDimension2D = 2048;
+	requiredLimits.maxTextureArrayLayers = 1;
+	requiredLimits.maxSampledTexturesPerShaderStage = 4;
+	requiredLimits.maxSamplersPerShaderStage = 1;
 
 	DeviceDescriptor deviceDesc;
-	deviceDesc.label = WGPU_STR("My Device");
+	deviceDesc.label = StringView("My Device");
 	deviceDesc.requiredFeatureCount = 0;
 	deviceDesc.requiredLimits = &requiredLimits;
-	deviceDesc.defaultQueue.label = WGPU_STR("The default queue");
+	deviceDesc.defaultQueue.label = StringView("The default queue");
 
 #ifdef WEBGPU_BACKEND_DAWN
 	deviceDesc.deviceLostCallbackInfo2.mode = CallbackMode::AllowSpontaneous;
 	deviceDesc.deviceLostCallbackInfo2.callback =
 #else // WEBGPU_BACKEND_DAWN
-	deviceDesc.deviceLostCallback =
+	deviceDesc.deviceLostCallbackInfo.mode = CallbackMode::AllowSpontaneous;
+	deviceDesc.deviceLostCallbackInfo.callback =
 #endif // WEBGPU_BACKEND_DAWN
 	[](
 		[[maybe_unused]] WGPUDevice const* device,
@@ -346,12 +338,17 @@ bool Application::initWindowAndDevice() {
 		[[maybe_unused]] void* userdata2
 	) {
 		std::cout << "Device lost: reason " << reason;
-		if (message.data) std::cout << " (message: " << FROM_WGPU_STR(message) << ")";
+		if (message.data) std::cout << " (message: " << StringView(message) << ")";
 		std::cout << std::endl;
 	};
 
 	// Add an error callback for more debug info
-	deviceDesc.uncapturedErrorCallbackInfo2.callback = [](
+#ifdef WEBGPU_BACKEND_DAWN
+	deviceDesc.uncapturedErrorCallbackInfo2.callback =
+#else // WEBGPU_BACKEND_DAWN
+	deviceDesc.uncapturedErrorCallbackInfo.callback =
+#endif // WEBGPU_BACKEND_DAWN
+	[](
 		[[maybe_unused]] WGPUDevice const* device,
 		WGPUErrorType type,
 		struct WGPUStringView message,
@@ -359,7 +356,7 @@ bool Application::initWindowAndDevice() {
 		[[maybe_unused]] void* userdata2
 	) {
 		std::cout << "Device error: type " << type;
-		if (message.data) std::cout << " (message: " << FROM_WGPU_STR(message) << ")";
+		if (message.data) std::cout << " (message: " << StringView(message) << ")";
 		std::cout << std::endl;
 	};
 
@@ -513,7 +510,7 @@ bool Application::initRenderPipeline() {
 	pipelineDesc.vertex.buffers = &vertexBufferLayout;
 
 	pipelineDesc.vertex.module = m_shaderModule;
-	pipelineDesc.vertex.entryPoint = WGPU_STR("vs_main");
+	pipelineDesc.vertex.entryPoint = StringView("vs_main");
 	pipelineDesc.vertex.constantCount = 0;
 	pipelineDesc.vertex.constants = nullptr;
 
@@ -525,7 +522,7 @@ bool Application::initRenderPipeline() {
 	FragmentState fragmentState;
 	pipelineDesc.fragment = &fragmentState;
 	fragmentState.module = m_shaderModule;
-	fragmentState.entryPoint = WGPU_STR("fs_main");
+	fragmentState.entryPoint = StringView("fs_main");
 	fragmentState.constantCount = 0;
 	fragmentState.constants = nullptr;
 
@@ -711,6 +708,14 @@ bool Application::initBindGroupLayout() {
 	bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	bindingLayout.buffer.type = BufferBindingType::Uniform;
 	bindingLayout.buffer.minBindingSize = sizeof(MyUniforms);
+	bindingLayout.buffer.nextInChain = nullptr;
+
+	bindingLayout.sampler.nextInChain = nullptr;
+	bindingLayout.sampler.type = SamplerBindingType::BindingNotUsed;
+	bindingLayout.storageTexture.nextInChain = nullptr;
+	bindingLayout.storageTexture.access = StorageTextureAccess::BindingNotUsed;
+	bindingLayout.texture.nextInChain = nullptr;
+	bindingLayout.texture.sampleType = TextureSampleType::BindingNotUsed;
 
 	// The texture binding
 	BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
