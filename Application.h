@@ -26,6 +26,8 @@
 
 #pragma once
 
+#include "webgpu-raii.hpp"
+
 #include <webgpu/webgpu.hpp>
 #include <glm/glm.hpp>
 
@@ -152,42 +154,42 @@ private:
 
 	// Window and Device
 	GLFWwindow* m_window;
-	wgpu::Instance m_instance;
-	wgpu::Surface m_surface;
-	wgpu::Device m_device;
-	wgpu::Queue m_queue;
+	wgpu::raii::Instance m_instance;
+	wgpu::raii::Surface m_surface;
+	wgpu::raii::Device m_device;
+	wgpu::raii::Queue m_queue;
 	wgpu::TextureFormat m_surfaceFormat = wgpu::TextureFormat::Undefined;
 
 	// Depth Buffer
 	wgpu::TextureFormat m_depthTextureFormat = wgpu::TextureFormat::Depth24Plus;
-	wgpu::Texture m_depthTexture;
-	wgpu::TextureView m_depthTextureView;
+	wgpu::raii::Texture m_depthTexture;
+	wgpu::raii::TextureView m_depthTextureView;
 
 	// Render Pipeline
-	wgpu::ShaderModule m_shaderModule;
-	wgpu::RenderPipeline m_pipeline;
+	wgpu::raii::ShaderModule m_shaderModule;
+	wgpu::raii::RenderPipeline m_pipeline;
 
 	// Texture
-	wgpu::Sampler m_sampler;
-	wgpu::Texture m_texture;
-	wgpu::TextureView m_textureView;
+	wgpu::raii::Sampler m_sampler;
+	wgpu::raii::Texture m_texture;
+	wgpu::raii::TextureView m_textureView;
 	
 	// Geometry
-	wgpu::Buffer m_vertexBuffer;
+	wgpu::raii::Buffer m_vertexBuffer;
 	int m_vertexCount = 0;
 
 	// Uniforms
-	wgpu::Buffer m_uniformBuffer;
+	wgpu::raii::Buffer m_uniformBuffer;
 	MyUniforms m_uniforms;
-	wgpu::Buffer m_lightingUniformBuffer;
+	wgpu::raii::Buffer m_lightingUniformBuffer;
 	LightingUniforms m_lightingUniforms;
 	bool m_lightingUniformsChanged = true;
 
 	// Bind Group Layout
-	wgpu::BindGroupLayout m_bindGroupLayout;
+	wgpu::raii::BindGroupLayout m_bindGroupLayout;
 
 	// Bind Group
-	wgpu::BindGroup m_bindGroup;
+	wgpu::raii::BindGroup m_bindGroup;
 
 	CameraState m_cameraState;
 	DragState m_drag;

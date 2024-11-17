@@ -110,10 +110,10 @@ void Application::onFrame() {
 
 	// Update uniform buffer
 	m_uniforms.time = static_cast<float>(glfwGetTime());
-	m_queue.writeBuffer(m_uniformBuffer, offsetof(MyUniforms, time), &m_uniforms.time, sizeof(MyUniforms::time));
+	m_queue->writeBuffer(*m_uniformBuffer, offsetof(MyUniforms, time), &m_uniforms.time, sizeof(MyUniforms::time));
 
 	SurfaceTexture surfaceTexture;
-	m_surface.getCurrentTexture(&surfaceTexture);
+	m_surface->getCurrentTexture(&surfaceTexture);
 	if (surfaceTexture.status != SuccessOptimal) {
 		std::cerr << "Warning: Could not acquire surface texture, status: " << surfaceTexture.status << std::endl;
 	}
@@ -133,16 +133,16 @@ void Application::onFrame() {
 	viewDesc.baseMipLevel = 0;
 	viewDesc.mipLevelCount = 1;
 	viewDesc.label = StringView("Surface Texture View");
-	auto nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
+	raii::TextureView nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
 	
 	CommandEncoderDescriptor commandEncoderDesc;
 	commandEncoderDesc.label = StringView("Command Encoder");
-	CommandEncoder encoder = m_device.createCommandEncoder(commandEncoderDesc);
+	CommandEncoder encoder = m_device->createCommandEncoder(commandEncoderDesc);
 	
 	RenderPassDescriptor renderPassDesc{};
 
 	RenderPassColorAttachment renderPassColorAttachment{};
-	renderPassColorAttachment.view = nextTexture;
+	renderPassColorAttachment.view = *nextTexture;
 	renderPassColorAttachment.resolveTarget = nullptr;
 	renderPassColorAttachment.loadOp = LoadOp::Clear;
 	renderPassColorAttachment.storeOp = StoreOp::Store;
@@ -152,7 +152,7 @@ void Application::onFrame() {
 	renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
 	RenderPassDepthStencilAttachment depthStencilAttachment;
-	depthStencilAttachment.view = m_depthTextureView;
+	depthStencilAttachment.view = *m_depthTextureView;
 	depthStencilAttachment.depthClearValue = 1.0f;
 	depthStencilAttachment.depthLoadOp = LoadOp::Clear;
 	depthStencilAttachment.depthStoreOp = StoreOp::Store;
@@ -172,12 +172,12 @@ void Application::onFrame() {
 	renderPassDesc.timestampWrites = nullptr;
 	RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
 
-	renderPass.setPipeline(m_pipeline);
+	renderPass.setPipeline(*m_pipeline);
 
-	renderPass.setVertexBuffer(0, m_vertexBuffer, 0, m_vertexCount * sizeof(VertexAttributes));
+	renderPass.setVertexBuffer(0, *m_vertexBuffer, 0, m_vertexCount * sizeof(VertexAttributes));
 
 	// Set binding group
-	renderPass.setBindGroup(0, m_bindGroup, 0, nullptr);
+	renderPass.setBindGroup(0, *m_bindGroup, 0, nullptr);
 
 	renderPass.draw(m_vertexCount, 1, 0, 0);
 
@@ -191,17 +191,16 @@ void Application::onFrame() {
 	cmdBufferDescriptor.label = StringView("Command buffer");
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
 	encoder.release();
-	m_queue.submit(command);
+	m_queue->submit(command);
 	command.release();
 
-	m_surface.present();
+	m_surface->present();
 
-	nextTexture.release();
 	Texture(surfaceTexture.texture).release();
 
 #ifdef WEBGPU_BACKEND_DAWN
 	// Check for pending error callbacks
-	m_device.tick();
+	m_device->tick();
 #endif
 }
 
@@ -304,7 +303,7 @@ bool Application::initWindowAndDevice() {
 	}
 
 	std::cout << "Getting surface..." << std::endl;
-	m_surface = glfwCreateWindowWGPUSurface(m_instance, m_window);
+	m_surface = { glfwCreateWindowWGPUSurface(*m_instance, m_window) };
 	std::cout << "Got surface: " << m_surface << std::endl;
 	if (!m_surface) {
 		std::cerr << "Could not get surface!" << std::endl;
@@ -313,8 +312,8 @@ bool Application::initWindowAndDevice() {
 
 	std::cout << "Requesting adapter..." << std::endl;
 	RequestAdapterOptions adapterOpts{};
-	adapterOpts.compatibleSurface = m_surface;
-	Adapter adapter = m_instance.requestAdapter(adapterOpts);
+	adapterOpts.compatibleSurface = *m_surface;
+	Adapter adapter = m_instance->requestAdapter(adapterOpts);
 	std::cout << "Got adapter: " << adapter << std::endl;
 
 #ifdef WEBGPU_BACKEND_DAWN
@@ -400,10 +399,10 @@ bool Application::initWindowAndDevice() {
 	m_device = adapter.requestDevice(deviceDesc);
 	std::cout << "Got device: " << m_device << std::endl;
 
-	m_queue = m_device.getQueue();
+	m_queue = m_device->getQueue();
 
 	SurfaceCapabilities capabilities;
-	m_surface.getCapabilities(adapter, &capabilities);
+	m_surface->getCapabilities(adapter, &capabilities);
 	m_surfaceFormat = capabilities.formats[0];
 
 	// Add window callbacks
@@ -427,15 +426,10 @@ bool Application::initWindowAndDevice() {
 	});
 
 	adapter.release();
-	return m_device != nullptr;
+	return m_device;
 }
 
 void Application::terminateWindowAndDevice() {
-	m_queue.release();
-	m_device.release();
-	m_surface.release();
-	m_instance.release();
-
 	glfwDestroyWindow(m_window);
 	glfwTerminate();
 }
@@ -454,15 +448,14 @@ bool Application::initSurface() {
 	config.format = m_surfaceFormat;
 	config.presentMode = PresentMode::Fifo;
 	config.alphaMode = CompositeAlphaMode::Auto;
-	config.device = m_device;
+	config.device = *m_device;
 	config.viewFormatCount = 0;
 	config.viewFormats = nullptr;
-	m_surface.configure(config);
+	m_surface->configure(config);
 	return true;
 }
 
 void Application::terminateSurface() {
-	m_surface.unconfigure();
 }
 
 
@@ -481,7 +474,7 @@ bool Application::initDepthBuffer() {
 	depthTextureDesc.usage = TextureUsage::RenderAttachment;
 	depthTextureDesc.viewFormatCount = 1;
 	depthTextureDesc.viewFormats = (WGPUTextureFormat*)&m_depthTextureFormat;
-	m_depthTexture = m_device.createTexture(depthTextureDesc);
+	m_depthTexture = m_device->createTexture(depthTextureDesc);
 	std::cout << "Depth texture: " << m_depthTexture << std::endl;
 
 	// Create the view of the depth texture manipulated by the rasterizer
@@ -493,16 +486,13 @@ bool Application::initDepthBuffer() {
 	depthTextureViewDesc.mipLevelCount = 1;
 	depthTextureViewDesc.dimension = TextureViewDimension::_2D;
 	depthTextureViewDesc.format = m_depthTextureFormat;
-	m_depthTextureView = m_depthTexture.createView(depthTextureViewDesc);
+	m_depthTextureView = m_depthTexture->createView(depthTextureViewDesc);
 	std::cout << "Depth texture view: " << m_depthTextureView << std::endl;
 
-	return m_depthTextureView != nullptr;
+	return m_depthTextureView;
 }
 
 void Application::terminateDepthBuffer() {
-	m_depthTextureView.release();
-	m_depthTexture.destroy();
-	m_depthTexture.release();
 }
 
 
@@ -546,7 +536,7 @@ bool Application::initRenderPipeline() {
 	pipelineDesc.vertex.bufferCount = 1;
 	pipelineDesc.vertex.buffers = &vertexBufferLayout;
 
-	pipelineDesc.vertex.module = m_shaderModule;
+	pipelineDesc.vertex.module = *m_shaderModule;
 	pipelineDesc.vertex.entryPoint = StringView("vs_main");
 	pipelineDesc.vertex.constantCount = 0;
 	pipelineDesc.vertex.constants = nullptr;
@@ -558,7 +548,7 @@ bool Application::initRenderPipeline() {
 
 	FragmentState fragmentState;
 	pipelineDesc.fragment = &fragmentState;
-	fragmentState.module = m_shaderModule;
+	fragmentState.module = *m_shaderModule;
 	fragmentState.entryPoint = StringView("fs_main");
 	fragmentState.constantCount = 0;
 	fragmentState.constants = nullptr;
@@ -596,18 +586,16 @@ bool Application::initRenderPipeline() {
 	PipelineLayoutDescriptor layoutDesc{};
 	layoutDesc.bindGroupLayoutCount = 1;
 	layoutDesc.bindGroupLayouts = (WGPUBindGroupLayout*)&m_bindGroupLayout;
-	PipelineLayout layout = m_device.createPipelineLayout(layoutDesc);
+	PipelineLayout layout = m_device->createPipelineLayout(layoutDesc);
 	pipelineDesc.layout = layout;
 
-	m_pipeline = m_device.createRenderPipeline(pipelineDesc);
+	m_pipeline = m_device->createRenderPipeline(pipelineDesc);
 	std::cout << "Render pipeline: " << m_pipeline << std::endl;
 
-	return m_pipeline != nullptr;
+	return m_pipeline;
 }
 
 void Application::terminateRenderPipeline() {
-	m_pipeline.release();
-	m_shaderModule.release();
 }
 
 
@@ -624,10 +612,10 @@ bool Application::initTexture() {
 	samplerDesc.lodMaxClamp = 8.0f;
 	samplerDesc.compare = CompareFunction::Undefined;
 	samplerDesc.maxAnisotropy = 1;
-	m_sampler = m_device.createSampler(samplerDesc);
+	m_sampler = m_device->createSampler(samplerDesc);
 
 	// Create a texture
-	m_texture = ResourceManager::loadTexture(RESOURCE_DIR "/fourareen2K_albedo.jpg", m_device, &m_textureView);
+	m_texture = ResourceManager::loadTexture(RESOURCE_DIR "/fourareen2K_albedo.jpg", *m_device, &*m_textureView);
 	if (!m_texture) {
 		std::cerr << "Could not load texture!" << std::endl;
 		return false;
@@ -635,14 +623,10 @@ bool Application::initTexture() {
 	std::cout << "Texture: " << m_texture << std::endl;
 	std::cout << "Texture view: " << m_textureView << std::endl;
 
-	return m_textureView != nullptr;
+	return m_textureView;
 }
 
 void Application::terminateTexture() {
-	m_textureView.release();
-	m_texture.destroy();
-	m_texture.release();
-	m_sampler.release();
 }
 
 
@@ -660,17 +644,17 @@ bool Application::initGeometry() {
 	bufferDesc.size = vertexData.size() * sizeof(VertexAttributes);
 	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
 	bufferDesc.mappedAtCreation = false;
-	m_vertexBuffer = m_device.createBuffer(bufferDesc);
-	m_queue.writeBuffer(m_vertexBuffer, 0, vertexData.data(), bufferDesc.size);
+	m_vertexBuffer = m_device->createBuffer(bufferDesc);
+	m_queue->writeBuffer(*m_vertexBuffer, 0, vertexData.data(), bufferDesc.size);
 
 	m_vertexCount = static_cast<int>(vertexData.size());
 
-	return m_vertexBuffer != nullptr;
+	return m_vertexBuffer;
 }
 
 void Application::terminateGeometry() {
-	m_vertexBuffer.destroy();
-	m_vertexBuffer.release();
+	m_vertexBuffer->destroy();
+	m_vertexBuffer = {};
 	m_vertexCount = 0;
 }
 
@@ -681,7 +665,7 @@ bool Application::initUniforms() {
 	bufferDesc.size = sizeof(MyUniforms);
 	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
 	bufferDesc.mappedAtCreation = false;
-	m_uniformBuffer = m_device.createBuffer(bufferDesc);
+	m_uniformBuffer = m_device->createBuffer(bufferDesc);
 
 	// Upload the initial value of the uniforms
 	m_uniforms.modelMatrix = mat4x4(1.0);
@@ -689,17 +673,15 @@ bool Application::initUniforms() {
 	m_uniforms.projectionMatrix = glm::perspective(45 * PI / 180, 640.0f / 480.0f, 0.01f, 100.0f);
 	m_uniforms.time = 1.0f;
 	m_uniforms.color = { 0.0f, 1.0f, 0.4f, 1.0f };
-	m_queue.writeBuffer(m_uniformBuffer, 0, &m_uniforms, sizeof(MyUniforms));
+	m_queue->writeBuffer(*m_uniformBuffer, 0, &m_uniforms, sizeof(MyUniforms));
 
 	updateProjectionMatrix();
 	updateViewMatrix();
 
-	return m_uniformBuffer != nullptr;
+	return m_uniformBuffer;
 }
 
 void Application::terminateUniforms() {
-	m_uniformBuffer.destroy();
-	m_uniformBuffer.release();
 }
 
 
@@ -709,7 +691,7 @@ bool Application::initLightingUniforms() {
 	bufferDesc.size = sizeof(LightingUniforms);
 	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
 	bufferDesc.mappedAtCreation = false;
-	m_lightingUniformBuffer = m_device.createBuffer(bufferDesc);
+	m_lightingUniformBuffer = m_device->createBuffer(bufferDesc);
 
 	// Initial values
 	m_lightingUniforms.directions[0] = { 0.5f, -0.9f, 0.1f, 0.0f };
@@ -719,17 +701,15 @@ bool Application::initLightingUniforms() {
 
 	updateLightingUniforms();
 
-	return m_lightingUniformBuffer != nullptr;
+	return m_lightingUniformBuffer;
 }
 
 void Application::terminateLightingUniforms() {
-	m_lightingUniformBuffer.destroy();
-	m_lightingUniformBuffer.release();
 }
 
 void Application::updateLightingUniforms() {
 	if (m_lightingUniformsChanged) {
-		m_queue.writeBuffer(m_lightingUniformBuffer, 0, &m_lightingUniforms, sizeof(LightingUniforms));
+		m_queue->writeBuffer(*m_lightingUniformBuffer, 0, &m_lightingUniforms, sizeof(LightingUniforms));
 		m_lightingUniformsChanged = false;
 	}
 }
@@ -776,13 +756,12 @@ bool Application::initBindGroupLayout() {
 	BindGroupLayoutDescriptor bindGroupLayoutDesc{};
 	bindGroupLayoutDesc.entryCount = (uint32_t)bindingLayoutEntries.size();
 	bindGroupLayoutDesc.entries = bindingLayoutEntries.data();
-	m_bindGroupLayout = m_device.createBindGroupLayout(bindGroupLayoutDesc);
+	m_bindGroupLayout = m_device->createBindGroupLayout(bindGroupLayoutDesc);
 
-	return m_bindGroupLayout != nullptr;
+	return m_bindGroupLayout;
 }
 
 void Application::terminateBindGroupLayout() {
-	m_bindGroupLayout.release();
 }
 
 
@@ -792,32 +771,31 @@ bool Application::initBindGroup() {
 	//                                   ^ This was a 3
 
 	bindings[0].binding = 0;
-	bindings[0].buffer = m_uniformBuffer;
+	bindings[0].buffer = *m_uniformBuffer;
 	bindings[0].offset = 0;
 	bindings[0].size = sizeof(MyUniforms);
 
 	bindings[1].binding = 1;
-	bindings[1].textureView = m_textureView;
+	bindings[1].textureView = *m_textureView;
 
 	bindings[2].binding = 2;
-	bindings[2].sampler = m_sampler;
+	bindings[2].sampler = *m_sampler;
 
 	bindings[3].binding = 3;
-	bindings[3].buffer = m_lightingUniformBuffer;
+	bindings[3].buffer = *m_lightingUniformBuffer;
 	bindings[3].offset = 0;
 	bindings[3].size = sizeof(LightingUniforms);
 
 	BindGroupDescriptor bindGroupDesc;
-	bindGroupDesc.layout = m_bindGroupLayout;
+	bindGroupDesc.layout = *m_bindGroupLayout;
 	bindGroupDesc.entryCount = (uint32_t)bindings.size();
 	bindGroupDesc.entries = bindings.data();
-	m_bindGroup = m_device.createBindGroup(bindGroupDesc);
+	m_bindGroup = m_device->createBindGroup(bindGroupDesc);
 
-	return m_bindGroup != nullptr;
+	return m_bindGroup;
 }
 
 void Application::terminateBindGroup() {
-	m_bindGroup.release();
 }
 
 void Application::updateProjectionMatrix() {
@@ -826,8 +804,8 @@ void Application::updateProjectionMatrix() {
 	glfwGetFramebufferSize(m_window, &width, &height);
 	float ratio = width / (float)height;
 	m_uniforms.projectionMatrix = glm::perspective(45 * PI / 180, ratio, 0.01f, 100.0f);
-	m_queue.writeBuffer(
-		m_uniformBuffer,
+	m_queue->writeBuffer(
+		*m_uniformBuffer,
 		offsetof(MyUniforms, projectionMatrix),
 		&m_uniforms.projectionMatrix,
 		sizeof(MyUniforms::projectionMatrix)
@@ -841,8 +819,8 @@ void Application::updateViewMatrix() {
 	float sy = sin(m_cameraState.angles.y);
 	vec3 position = vec3(cx * cy, sx * cy, sy) * std::exp(-m_cameraState.zoom);
 	m_uniforms.viewMatrix = glm::lookAt(position, vec3(0.0f), vec3(0, 0, 1));
-	m_queue.writeBuffer(
-		m_uniformBuffer,
+	m_queue->writeBuffer(
+		*m_uniformBuffer,
 		offsetof(MyUniforms, viewMatrix),
 		&m_uniforms.viewMatrix,
 		sizeof(MyUniforms::viewMatrix)
@@ -875,7 +853,7 @@ bool Application::initGui() {
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForOther(m_window, true);
 	ImGui_ImplWGPU_InitInfo init_info;
-	init_info.Device = m_device;
+	init_info.Device = *m_device;
 	init_info.RenderTargetFormat = m_surfaceFormat;
 	init_info.DepthStencilFormat = m_depthTextureFormat;
 	init_info.NumFramesInFlight = 3;

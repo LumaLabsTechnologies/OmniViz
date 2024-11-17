@@ -40,7 +40,7 @@ using TexelCopyTextureInfo = ImageCopyTexture;
 using TexelCopyBufferLayout = TextureDataLayout;
 #endif
 
-ShaderModule ResourceManager::loadShaderModule(const path& path, Device device) {
+ShaderModule ResourceManager::loadShaderModule(const path& path, raii::Device device) {
 	std::ifstream file(path);
 	if (!file.is_open()) {
 		return nullptr;
@@ -58,7 +58,7 @@ ShaderModule ResourceManager::loadShaderModule(const path& path, Device device) 
 	ShaderModuleDescriptor shaderDesc;
 	shaderDesc.nextInChain = &shaderCodeDesc.chain;
 
-	return device.createShaderModule(shaderDesc);
+	return device->createShaderModule(shaderDesc);
 }
 
 bool ResourceManager::loadGeometryFromObj(const path& path, std::vector<VertexAttributes>& vertexData) {
