@@ -51,6 +51,28 @@
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
 
+// TODO: Remove once Dawn upgrades to latest spec
+#ifdef WEBGPU_BACKEND_DAWN
+static constexpr SurfaceGetCurrentTextureStatus SuccessOptimal = SurfaceGetCurrentTextureStatus::Success;
+#else
+static constexpr SurfaceGetCurrentTextureStatus SuccessOptimal = SurfaceGetCurrentTextureStatus::SuccessOptimal;
+#endif
+
+// TODO: Remove once wgpu-native uses INIT macros
+#ifdef WEBGPU_BACKEND_WGPU
+#define RESET_BINDING_LAYOUT_ENTRY(bindingLayout) \
+	bindingLayout.buffer.nextInChain = nullptr; \
+	bindingLayout.buffer.type = BufferBindingType::BindingNotUsed; \
+	bindingLayout.sampler.nextInChain = nullptr; \
+	bindingLayout.sampler.type = SamplerBindingType::BindingNotUsed; \
+	bindingLayout.storageTexture.nextInChain = nullptr; \
+	bindingLayout.storageTexture.access = StorageTextureAccess::BindingNotUsed; \
+	bindingLayout.texture.nextInChain = nullptr; \
+	bindingLayout.texture.sampleType = TextureSampleType::BindingNotUsed;
+#else // WEBGPU_BACKEND_WGPU
+#define RESET_BINDING_LAYOUT_ENTRY(bindingLayout)
+#endif // NOT WEBGPU_BACKEND_WGPU
+
 constexpr float PI = 3.14159265358979323846f;
 
 // Custom ImGui widgets
@@ -92,7 +114,7 @@ void Application::onFrame() {
 
 	SurfaceTexture surfaceTexture;
 	m_surface.getCurrentTexture(&surfaceTexture);
-	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::SuccessOptimal) {
+	if (surfaceTexture.status != SuccessOptimal) {
 		std::cerr << "Warning: Could not acquire surface texture, status: " << surfaceTexture.status << std::endl;
 	}
 	if (!surfaceTexture.texture) {
@@ -112,7 +134,6 @@ void Application::onFrame() {
 	viewDesc.mipLevelCount = 1;
 	viewDesc.label = StringView("Surface Texture View");
 	auto nextTexture = Texture(surfaceTexture.texture).createView(viewDesc);
-	Texture(surfaceTexture.texture).release();
 	
 	CommandEncoderDescriptor commandEncoderDesc;
 	commandEncoderDesc.label = StringView("Command Encoder");
@@ -166,8 +187,6 @@ void Application::onFrame() {
 	renderPass.end();
 	renderPass.release();
 	
-	nextTexture.release();
-
 	CommandBufferDescriptor cmdBufferDescriptor{};
 	cmdBufferDescriptor.label = StringView("Command buffer");
 	CommandBuffer command = encoder.finish(cmdBufferDescriptor);
@@ -176,6 +195,9 @@ void Application::onFrame() {
 	command.release();
 
 	m_surface.present();
+
+	nextTexture.release();
+	Texture(surfaceTexture.texture).release();
 
 #ifdef WEBGPU_BACKEND_DAWN
 	// Check for pending error callbacks
@@ -295,11 +317,22 @@ bool Application::initWindowAndDevice() {
 	Adapter adapter = m_instance.requestAdapter(adapterOpts);
 	std::cout << "Got adapter: " << adapter << std::endl;
 
+#ifdef WEBGPU_BACKEND_DAWN
+	SupportedLimits wrappedSupportedLimits;
+	WGPULimits& supportedLimits = wrappedSupportedLimits.limits;
+	adapter.getLimits(&wrappedSupportedLimits);
+#else // WEBGPU_BACKEND_DAWN
 	Limits supportedLimits;
 	adapter.getLimits(&supportedLimits);
+#endif // NOT WEBGPU_BACKEND_DAWN
 
 	std::cout << "Requesting device..." << std::endl;
+#ifdef WEBGPU_BACKEND_DAWN
+	RequiredLimits wrappedRequiredLimits;
+	WGPULimits& requiredLimits = wrappedRequiredLimits.limits;
+#else // WEBGPU_BACKEND_DAWN
 	Limits requiredLimits = Default;
+#endif // NOT WEBGPU_BACKEND_DAWN
 	requiredLimits.maxVertexAttributes = 4;
 	requiredLimits.maxVertexBuffers = 1;
 	requiredLimits.maxBufferSize = 150000 * sizeof(VertexAttributes);
@@ -319,9 +352,13 @@ bool Application::initWindowAndDevice() {
 
 	DeviceDescriptor deviceDesc;
 	deviceDesc.label = StringView("My Device");
-	deviceDesc.requiredFeatureCount = 0;
-	deviceDesc.requiredLimits = &requiredLimits;
 	deviceDesc.defaultQueue.label = StringView("The default queue");
+	deviceDesc.requiredFeatureCount = 0;
+#ifdef WEBGPU_BACKEND_DAWN
+	deviceDesc.requiredLimits = &wrappedRequiredLimits;
+#else // WEBGPU_BACKEND_DAWN
+	deviceDesc.requiredLimits = &requiredLimits;
+#endif // NOT WEBGPU_BACKEND_DAWN
 
 #ifdef WEBGPU_BACKEND_DAWN
 	deviceDesc.deviceLostCallbackInfo2.mode = CallbackMode::AllowSpontaneous;
@@ -704,34 +741,32 @@ bool Application::initBindGroupLayout() {
 
 	// The uniform buffer binding
 	BindGroupLayoutEntry& bindingLayout = bindingLayoutEntries[0];
+	RESET_BINDING_LAYOUT_ENTRY(bindingLayout);
 	bindingLayout.binding = 0;
 	bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
 	bindingLayout.buffer.type = BufferBindingType::Uniform;
 	bindingLayout.buffer.minBindingSize = sizeof(MyUniforms);
 	bindingLayout.buffer.nextInChain = nullptr;
 
-	bindingLayout.sampler.nextInChain = nullptr;
-	bindingLayout.sampler.type = SamplerBindingType::BindingNotUsed;
-	bindingLayout.storageTexture.nextInChain = nullptr;
-	bindingLayout.storageTexture.access = StorageTextureAccess::BindingNotUsed;
-	bindingLayout.texture.nextInChain = nullptr;
-	bindingLayout.texture.sampleType = TextureSampleType::BindingNotUsed;
-
 	// The texture binding
 	BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
+	RESET_BINDING_LAYOUT_ENTRY(textureBindingLayout);
 	textureBindingLayout.binding = 1;
 	textureBindingLayout.visibility = ShaderStage::Fragment;
 	textureBindingLayout.texture.sampleType = TextureSampleType::Float;
 	textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D;
+	textureBindingLayout.texture.multisampled = false;
 
 	// The texture sampler binding
 	BindGroupLayoutEntry& samplerBindingLayout = bindingLayoutEntries[2];
+	RESET_BINDING_LAYOUT_ENTRY(samplerBindingLayout);
 	samplerBindingLayout.binding = 2;
 	samplerBindingLayout.visibility = ShaderStage::Fragment;
 	samplerBindingLayout.sampler.type = SamplerBindingType::Filtering;
 
 	// The lighting uniform buffer binding
 	BindGroupLayoutEntry& lightingUniformLayout = bindingLayoutEntries[3];
+	RESET_BINDING_LAYOUT_ENTRY(lightingUniformLayout);
 	lightingUniformLayout.binding = 3;
 	lightingUniformLayout.visibility = ShaderStage::Fragment; // only Fragment is needed
 	lightingUniformLayout.buffer.type = BufferBindingType::Uniform;

@@ -25,7 +25,7 @@
 cmake_minimum_required(VERSION 3.0.0...3.24 FATAL_ERROR)
 project(webgpu VERSION 1.0.0)
 
-set(WEBGPU_BACKEND "DAWN" CACHE STRING "Backend implementation of WebGPU. Possible values are EMSCRIPTEN, WGPU and DAWN (it does not matter when using emcmake)")
+set(WEBGPU_BACKEND "WGPU" CACHE STRING "Backend implementation of WebGPU. Possible values are EMSCRIPTEN, WGPU and DAWN (it does not matter when using emcmake)")
 set_property(CACHE WEBGPU_BACKEND PROPERTY STRINGS EMSCRIPTEN WGPU DAWN)
 
 # NB: There are also backend-specific options in <backend>/CMakeLists.txt
