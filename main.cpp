@@ -126,6 +126,8 @@ bool Application::Initialize() {
 	window = glfwCreateWindow(640, 480, "Learn WebGPU", nullptr, nullptr);
 	
 	Instance instance = wgpuCreateInstance(nullptr);
+
+	surface = glfwGetWGPUSurface(instance, window);
 	
 	// Get adapter
 	std::cout << "Requesting adapter..." << std::endl;
