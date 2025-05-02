@@ -51,13 +51,6 @@
 using namespace wgpu;
 using VertexAttributes = ResourceManager::VertexAttributes;
 
-// TODO: Remove once Dawn upgrades to latest spec
-#ifdef WEBGPU_BACKEND_DAWN
-static constexpr SurfaceGetCurrentTextureStatus SuccessOptimal = SurfaceGetCurrentTextureStatus::Success;
-#else
-static constexpr SurfaceGetCurrentTextureStatus SuccessOptimal = SurfaceGetCurrentTextureStatus::SuccessOptimal;
-#endif
-
 // TODO: Remove once wgpu-native uses INIT macros
 #ifdef WEBGPU_BACKEND_WGPU
 #define RESET_BINDING_LAYOUT_ENTRY(bindingLayout) \
@@ -114,7 +107,7 @@ void Application::onFrame() {
 
 	SurfaceTexture surfaceTexture;
 	m_surface.getCurrentTexture(&surfaceTexture);
-	if (surfaceTexture.status != SuccessOptimal) {
+	if (surfaceTexture.status != SurfaceGetCurrentTextureStatus::SuccessOptimal) {
 		std::cerr << "Warning: Could not acquire surface texture, status: " << surfaceTexture.status << std::endl;
 	}
 	if (!surfaceTexture.texture) {
@@ -318,9 +311,8 @@ bool Application::initWindowAndDevice() {
 	std::cout << "Got adapter: " << adapter << std::endl;
 
 #ifdef WEBGPU_BACKEND_DAWN
-	SupportedLimits wrappedSupportedLimits;
-	WGPULimits& supportedLimits = wrappedSupportedLimits.limits;
-	adapter.getLimits(&wrappedSupportedLimits);
+	Limits supportedLimits;
+	adapter.getLimits(&supportedLimits);
 #else // WEBGPU_BACKEND_DAWN
 	Limits supportedLimits;
 	adapter.getLimits(&supportedLimits);
@@ -328,8 +320,7 @@ bool Application::initWindowAndDevice() {
 
 	std::cout << "Requesting device..." << std::endl;
 #ifdef WEBGPU_BACKEND_DAWN
-	RequiredLimits wrappedRequiredLimits;
-	WGPULimits& requiredLimits = wrappedRequiredLimits.limits;
+	Limits requiredLimits;
 #else // WEBGPU_BACKEND_DAWN
 	Limits requiredLimits = Default;
 #endif // NOT WEBGPU_BACKEND_DAWN
@@ -355,18 +346,13 @@ bool Application::initWindowAndDevice() {
 	deviceDesc.defaultQueue.label = StringView("The default queue");
 	deviceDesc.requiredFeatureCount = 0;
 #ifdef WEBGPU_BACKEND_DAWN
-	deviceDesc.requiredLimits = &wrappedRequiredLimits;
+	deviceDesc.requiredLimits = &requiredLimits;
 #else // WEBGPU_BACKEND_DAWN
 	deviceDesc.requiredLimits = &requiredLimits;
 #endif // NOT WEBGPU_BACKEND_DAWN
 
-#ifdef WEBGPU_BACKEND_DAWN
-	deviceDesc.deviceLostCallbackInfo2.mode = CallbackMode::AllowSpontaneous;
-	deviceDesc.deviceLostCallbackInfo2.callback =
-#else // WEBGPU_BACKEND_DAWN
 	deviceDesc.deviceLostCallbackInfo.mode = CallbackMode::AllowSpontaneous;
 	deviceDesc.deviceLostCallbackInfo.callback =
-#endif // WEBGPU_BACKEND_DAWN
 	[](
 		[[maybe_unused]] WGPUDevice const* device,
 		WGPUDeviceLostReason reason,
@@ -380,11 +366,7 @@ bool Application::initWindowAndDevice() {
 	};
 
 	// Add an error callback for more debug info
-#ifdef WEBGPU_BACKEND_DAWN
-	deviceDesc.uncapturedErrorCallbackInfo2.callback =
-#else // WEBGPU_BACKEND_DAWN
 	deviceDesc.uncapturedErrorCallbackInfo.callback =
-#endif // WEBGPU_BACKEND_DAWN
 	[](
 		[[maybe_unused]] WGPUDevice const* device,
 		WGPUErrorType type,
@@ -397,7 +379,7 @@ bool Application::initWindowAndDevice() {
 		std::cout << std::endl;
 	};
 
-	m_device = adapter.requestDevice(deviceDesc);
+	m_device = adapter.requestDevice(m_instance, deviceDesc);
 	std::cout << "Got device: " << m_device << std::endl;
 
 	m_queue = m_device.getQueue();

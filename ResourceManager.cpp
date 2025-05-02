@@ -34,12 +34,6 @@
 
 using namespace wgpu;
 
-// TODO: Remove once Dawn upgrades to latest spec
-#ifdef WEBGPU_BACKEND_DAWN
-using TexelCopyTextureInfo = ImageCopyTexture;
-using TexelCopyBufferLayout = TextureDataLayout;
-#endif
-
 ShaderModule ResourceManager::loadShaderModule(const path& path, Device device) {
 	std::ifstream file(path);
 	if (!file.is_open()) {

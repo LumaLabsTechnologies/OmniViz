@@ -22,22 +22,28 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-set(DAWN_VERSION "7069" CACHE STRING "\
-	Version of the Dawn release to use. Must correspond to the number after 'chromium/' \
-	in the tag name of an existing release on DAWN_MIRROR. \
-	Warning: The webgpu.hpp file provided in include/ may not be compatible with other \
-	versions than the default.")
+# This is a CMake file meant to be called in script mode. It applies a patch in
+# a way that is robust to re-applying it multiple times.
+#
+# Usage:
+#   cmake -DPATCH_FILE=path/to/patch.diff -P apply_patch_idempotent.cmake
+#
+# Patch is applied in the current working directory.
 
-set(DAWN_SOURCE_MIRROR "https://dawn.googlesource.com/dawn" CACHE STRING "\
-	The repository where to find Dawn source code.")
+message(STATUS "Applying patch from '${PATCH_FILE}'...")
 
-set(DAWN_BINARY_MIRROR "https://github.com/eliemichel/dawn-prebuilt" CACHE STRING "\
-	The repository where to find Dawn precompiled releases. This is ultimately supposed \
-	to be https://github.com/google/dawn, where official binaries will be auto-released, \
-	but in the meantime we use a different mirror.")
+set(PATCH_CMD git apply --ignore-space-change --ignore-whitespace ${PATCH_FILE})
 
-if (WEBGPU_BUILD_FROM_SOURCE)
-	include(FetchDawnSource.cmake)
+# Test reverse patch
+execute_process(
+	RESULT_VARIABLE EXIT_CODE
+	ERROR_VARIABLE STDERR
+	COMMAND git apply --ignore-space-change --ignore-whitespace "${PATCH_FILE}" --reverse --check
+)
+
+if (EXIT_CODE EQUAL 0)
+	# Reverse patch can be applied, which means the patch has already been applied.
+	message(STATUS "Patch was already applied")
 else()
-	include(FetchDawnPrecompiled.cmake)
+	execute_process(COMMAND git apply --ignore-space-change --ignore-whitespace ${PATCH_FILE})
 endif()
