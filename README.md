@@ -1,16 +1,22 @@
-LearnWebGPU - Code
-==================
-
-This repository contains the reference code base accompanying the [Learn WebGPU](https://eliemichel.github.io/LearnWebGPU/) web book.
-
-Branch `step032`: This corresponds to the code at the end of the page [A first Vertex Attribute](https://eliemichel.github.io/LearnWebGPU/basic-3d-rendering/input-geometry/a-first-vertex-attribute.html).
+OmniViz
+=======
 
 Building
 --------
-
 ```
-cmake . -B build
-cmake --build build
+checkout branch step037-imgui
 ```
-
-Then run either `./build/App` (linux/macOS/MinGW) or `build\Debug\App.exe` (MSVC).
+**wasm:**
+```
+emsdk.ps1 activate
+emcmake cmake -B build-web
+cmake --build build-web
+python -m http.server -d build-web
+point browser to http://localhost:8000/App.html
+```
+**native:**
+```
+cmake -B build-native
+cmake --build build-native
+build-native\Debug\App.exe
+```
